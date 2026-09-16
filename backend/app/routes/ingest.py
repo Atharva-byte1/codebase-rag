@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import io
 import json
@@ -13,7 +14,7 @@ from fastapi import APIRouter, File as UploadFileField, HTTPException, UploadFil
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.db.models import File as RepoFile
+from app.db.models import Chunk, File as RepoFile
 from app.db.models import Repo
 from app.db.session import SessionLocal
 
@@ -55,6 +56,9 @@ LANGUAGES = {
     ".md": "markdown",
 }
 
+AcceptedFile = tuple[Path, str, str, bytes]
+ChunkData = tuple[str, int, int, str]
+
 
 class GithubIngestRequest(BaseModel):
     url: str | None = None
@@ -87,6 +91,54 @@ def _set_failed(repo_id: int) -> None:
             session.commit()
 
 
+def _python_chunks(content: bytes) -> list[ChunkData]:
+    try:
+        source = content.decode("utf-8")
+        tree = ast.parse(source)
+    except (UnicodeDecodeError, SyntaxError, ValueError):
+        return []
+
+    lines = source.splitlines(keepends=True)
+    chunks: list[ChunkData] = []
+
+    def add_node(node: ast.AST, symbol_name: str) -> None:
+        start_line = getattr(node, "lineno", None)
+        end_line = getattr(node, "end_lineno", None)
+        if start_line is None or end_line is None:
+            return
+        decorator_lines = [
+            decorator.lineno
+            for decorator in getattr(node, "decorator_list", [])
+            if hasattr(decorator, "lineno")
+        ]
+        start_line = min([start_line, *decorator_lines])
+        chunks.append(
+            (
+                symbol_name,
+                start_line,
+                end_line,
+                "".join(lines[start_line - 1 : end_line]),
+            )
+        )
+
+    def visit_body(body: list[ast.stmt], parent_name: str = "") -> None:
+        for node in body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                symbol_name = f"{parent_name}.{node.name}" if parent_name else node.name
+                add_node(node, symbol_name)
+                if isinstance(node, ast.ClassDef):
+                    visit_body(node.body, symbol_name)
+
+    visit_body(tree.body)
+    return chunks
+
+
+def _chunks_for_file(language: str, content: bytes) -> list[ChunkData]:
+    if language == "python":
+        return _python_chunks(content)
+    return []
+
+
 def _create_repo(*, source_url: str | None = None, zip_name: str | None = None) -> int:
     with SessionLocal() as session:
         repo = Repo(source_url=source_url, zip_name=zip_name, status="pending")
@@ -99,27 +151,39 @@ def _create_repo(*, source_url: str | None = None, zip_name: str | None = None) 
 
 
 def _save_ingested_files(
-    repo_id: int, accepted_files: list[tuple[Path, str, str]]
+    repo_id: int, accepted_files: list[AcceptedFile]
 ) -> None:
     with SessionLocal() as session:
         repo = session.get(Repo, repo_id)
         if repo is None:
             raise RuntimeError("Repository record disappeared")
-        session.add_all(
-            RepoFile(
+        for path, language, content_hash, content in accepted_files:
+            repo_file = RepoFile(
                 repo_id=repo_id,
                 path=path.as_posix(),
                 language=language,
                 content_hash=content_hash,
             )
-            for path, language, content_hash in accepted_files
-        )
+            session.add(repo_file)
+            session.flush()
+            session.add_all(
+                Chunk(
+                    file_id=repo_file.id,
+                    symbol_name=symbol_name,
+                    start_line=start_line,
+                    end_line=end_line,
+                    content=chunk_content,
+                )
+                for symbol_name, start_line, end_line, chunk_content in _chunks_for_file(
+                    language, content
+                )
+            )
         repo.status = "ready"
         session.commit()
 
 
-def _accepted_files_from_archive(archive: zipfile.ZipFile) -> list[tuple[Path, str, str]]:
-    accepted_files: list[tuple[Path, str, str]] = []
+def _accepted_files_from_archive(archive: zipfile.ZipFile) -> list[AcceptedFile]:
+    accepted_files: list[AcceptedFile] = []
     with TemporaryDirectory() as temp_dir:
         extraction_root = Path(temp_dir).resolve()
         for member in archive.infolist():
@@ -145,6 +209,7 @@ def _accepted_files_from_archive(archive: zipfile.ZipFile) -> list[tuple[Path, s
                     relative_path,
                     LANGUAGES[relative_path.suffix.lower()],
                     hashlib.sha256(content).hexdigest(),
+                    content,
                 )
             )
     return accepted_files
