@@ -12,9 +12,10 @@ from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, File as UploadFileField, HTTPException, UploadFile
 from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 from sqlalchemy import func, select
 
-from app.db.models import Chunk, File as RepoFile
+from app.db.models import Chunk, Embedding, File as RepoFile
 from app.db.models import Repo
 from app.db.session import SessionLocal
 
@@ -58,6 +59,9 @@ LANGUAGES = {
 
 AcceptedFile = tuple[Path, str, str, bytes]
 ChunkData = tuple[str, int, int, str]
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_DIMENSION = 384
+_embedding_model: SentenceTransformer | None = None
 
 
 class GithubIngestRequest(BaseModel):
@@ -139,6 +143,43 @@ def _chunks_for_file(language: str, content: bytes) -> list[ChunkData]:
     return []
 
 
+def _get_embedding_model() -> SentenceTransformer:
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    return _embedding_model
+
+
+def _store_embeddings(session, chunks: list[Chunk]) -> None:
+    if not chunks:
+        return
+
+    existing_chunk_ids = set(
+        session.scalars(
+            select(Embedding.chunk_id).where(
+                Embedding.chunk_id.in_(chunk.id for chunk in chunks)
+            )
+        )
+    )
+    chunks_to_embed = [chunk for chunk in chunks if chunk.id not in existing_chunk_ids]
+    if not chunks_to_embed:
+        return
+
+    vectors = _get_embedding_model().encode(
+        [chunk.content for chunk in chunks_to_embed],
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    if len(vectors) != len(chunks_to_embed):
+        raise RuntimeError("Embedding count does not match chunk count")
+
+    for chunk, vector in zip(chunks_to_embed, vectors):
+        values = vector.tolist()
+        if len(values) != EMBEDDING_DIMENSION:
+            raise RuntimeError("Embedding dimension does not match schema")
+        session.add(Embedding(chunk_id=chunk.id, vector=values))
+
+
 def _create_repo(*, source_url: str | None = None, zip_name: str | None = None) -> int:
     with SessionLocal() as session:
         repo = Repo(source_url=source_url, zip_name=zip_name, status="pending")
@@ -157,6 +198,7 @@ def _save_ingested_files(
         repo = session.get(Repo, repo_id)
         if repo is None:
             raise RuntimeError("Repository record disappeared")
+        chunks: list[Chunk] = []
         for path, language, content_hash, content in accepted_files:
             repo_file = RepoFile(
                 repo_id=repo_id,
@@ -166,7 +208,7 @@ def _save_ingested_files(
             )
             session.add(repo_file)
             session.flush()
-            session.add_all(
+            file_chunks = [
                 Chunk(
                     file_id=repo_file.id,
                     symbol_name=symbol_name,
@@ -177,7 +219,11 @@ def _save_ingested_files(
                 for symbol_name, start_line, end_line, chunk_content in _chunks_for_file(
                     language, content
                 )
-            )
+            ]
+            session.add_all(file_chunks)
+            session.flush()
+            chunks.extend(file_chunks)
+        _store_embeddings(session, chunks)
         repo.status = "ready"
         session.commit()
 

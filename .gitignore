@@ -20,3 +20,5 @@ postgres-data/
 .vscode/
 .idea/
 *.code-workspace
+
+.hf-cache/
