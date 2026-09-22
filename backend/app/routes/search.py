@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db.models import Chunk, Embedding, File as RepoFile
 from app.db.session import SessionLocal
 from app.routes.ingest import _get_embedding_model
+from app.search_scoring import bm25_scores, cosine_similarity, hybrid_scores
 
 router = APIRouter()
 
@@ -17,6 +18,9 @@ class SearchResult(BaseModel):
     end_line: int | None
     content: str
     similarity: float
+    bm25_score: float
+    vector_score: float
+    hybrid_score: float
 
 
 class SearchResponse(BaseModel):
@@ -29,26 +33,27 @@ def search(
     repo_id: int | None = Query(default=None, ge=1),
     top_k: int = Query(default=10, ge=1, le=100),
 ) -> SearchResponse:
+    if not query.strip():
+        return SearchResponse(results=[])
+
     try:
         vector = _get_embedding_model().encode(
             [query],
             convert_to_numpy=True,
             show_progress_bar=False,
         )[0].tolist()
-        distance = Embedding.vector.cosine_distance(vector)
         statement = (
             select(
+                Chunk.id,
                 RepoFile.path,
                 Chunk.symbol_name,
                 Chunk.start_line,
                 Chunk.end_line,
                 Chunk.content,
-                (1 - distance).label("similarity"),
+                Embedding.vector,
             )
             .join(Chunk, Chunk.file_id == RepoFile.id)
             .join(Embedding, Embedding.chunk_id == Chunk.id)
-            .order_by(distance)
-            .limit(top_k)
         )
         if repo_id is not None:
             statement = statement.where(RepoFile.repo_id == repo_id)
@@ -60,16 +65,41 @@ def search(
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail="Search failed") from exc
 
+    if not rows:
+        return SearchResponse(results=[])
+
+    documents = [row.content for row in rows]
+    bm25_values = bm25_scores(query, documents)
+    vector_values = [
+        cosine_similarity(vector, row.vector)
+        for row in rows
+    ]
+    combined_values = hybrid_scores(bm25_values, vector_values)
+    ranked_rows = sorted(
+        zip(rows, bm25_values, vector_values, combined_values),
+        key=lambda item: (
+            -item[3],
+            -item[1],
+            -item[2],
+            item[0].path,
+            item[0].start_line or 0,
+            item[0].id,
+        ),
+    )[:top_k]
+
     return SearchResponse(
         results=[
             SearchResult(
-                file_path=file_path,
-                symbol_name=symbol_name,
-                start_line=start_line,
-                end_line=end_line,
-                content=content,
-                similarity=float(similarity),
+                file_path=row.path,
+                symbol_name=row.symbol_name,
+                start_line=row.start_line,
+                end_line=row.end_line,
+                content=row.content,
+                similarity=float(vector_score),
+                bm25_score=float(bm25_score),
+                vector_score=float(vector_score),
+                hybrid_score=float(hybrid_score),
             )
-            for file_path, symbol_name, start_line, end_line, content, similarity in rows
+            for row, bm25_score, vector_score, hybrid_score in ranked_rows
         ]
     )
