@@ -80,3 +80,18 @@ def hybrid_scores(
         (bm25_value + vector_value) / 2
         for bm25_value, vector_value in zip(normalized_bm25, normalized_vector)
     ]
+
+
+def rerank_scores(
+    query: str,
+    documents: list[str],
+    score_pairs,
+) -> list[float]:
+    """Score query/document pairs with a cross-encoder-compatible scorer."""
+    if not query.strip() or not documents:
+        return [0.0] * len(documents)
+
+    scores = score_pairs([[query, document] for document in documents])
+    if len(scores) != len(documents):
+        raise ValueError("Reranker score count does not match document count")
+    return [float(score) for score in scores]

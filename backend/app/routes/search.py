@@ -1,14 +1,23 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from sentence_transformers import CrossEncoder
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import Chunk, Embedding, File as RepoFile
 from app.db.session import SessionLocal
 from app.routes.ingest import _get_embedding_model
-from app.search_scoring import bm25_scores, cosine_similarity, hybrid_scores
+from app.search_scoring import (
+    bm25_scores,
+    cosine_similarity,
+    hybrid_scores,
+    rerank_scores,
+)
 
 router = APIRouter()
+RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+CANDIDATE_MULTIPLIER = 5
+_reranker: CrossEncoder | None = None
 
 
 class SearchResult(BaseModel):
@@ -21,10 +30,18 @@ class SearchResult(BaseModel):
     bm25_score: float
     vector_score: float
     hybrid_score: float
+    reranking_score: float
 
 
 class SearchResponse(BaseModel):
     results: list[SearchResult]
+
+
+def _get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        _reranker = CrossEncoder(RERANKER_MODEL_NAME)
+    return _reranker
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -75,7 +92,7 @@ def search(
         for row in rows
     ]
     combined_values = hybrid_scores(bm25_values, vector_values)
-    ranked_rows = sorted(
+    hybrid_ranked_rows = sorted(
         zip(rows, bm25_values, vector_values, combined_values),
         key=lambda item: (
             -item[3],
@@ -84,6 +101,25 @@ def search(
             item[0].path,
             item[0].start_line or 0,
             item[0].id,
+        ),
+    )
+    candidate_rows = hybrid_ranked_rows[: top_k * CANDIDATE_MULTIPLIER]
+    candidate_documents = [item[0].content for item in candidate_rows]
+    reranking_values = rerank_scores(
+        query,
+        candidate_documents,
+        _get_reranker().predict,
+    )
+    ranked_rows = sorted(
+        zip(candidate_rows, reranking_values),
+        key=lambda item: (
+            -item[1],
+            -item[0][3],
+            -item[0][1],
+            -item[0][2],
+            item[0][0].path,
+            item[0][0].start_line or 0,
+            item[0][0].id,
         ),
     )[:top_k]
 
@@ -99,7 +135,9 @@ def search(
                 bm25_score=float(bm25_score),
                 vector_score=float(vector_score),
                 hybrid_score=float(hybrid_score),
+                reranking_score=float(reranking_score),
             )
-            for row, bm25_score, vector_score, hybrid_score in ranked_rows
+            for (row, bm25_score, vector_score, hybrid_score), reranking_score
+            in ranked_rows
         ]
     )
