@@ -21,6 +21,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-codebase_rag}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-cohere/north-mini-code:free}
     ports:
       - "8000:8000"
     depends_on:

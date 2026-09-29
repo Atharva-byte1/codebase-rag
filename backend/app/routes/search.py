@@ -44,12 +44,7 @@ def _get_reranker() -> CrossEncoder:
     return _reranker
 
 
-@router.get("/search", response_model=SearchResponse)
-def search(
-    query: str = Query(..., min_length=1),
-    repo_id: int | None = Query(default=None, ge=1),
-    top_k: int = Query(default=10, ge=1, le=100),
-) -> SearchResponse:
+def search_code(query: str, repo_id: int | None = None, top_k: int = 10) -> SearchResponse:
     if not query.strip():
         return SearchResponse(results=[])
 
@@ -141,3 +136,12 @@ def search(
             in ranked_rows
         ]
     )
+
+
+@router.get("/search", response_model=SearchResponse)
+def search(
+    query: str = Query(..., min_length=1),
+    repo_id: int | None = Query(default=None, ge=1),
+    top_k: int = Query(default=10, ge=1, le=100),
+) -> SearchResponse:
+    return search_code(query, repo_id, top_k)
