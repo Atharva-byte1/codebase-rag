@@ -1,5 +1,7 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,12 +17,14 @@ from app.search_scoring import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 CANDIDATE_MULTIPLIER = 5
 _reranker: CrossEncoder | None = None
 
 
 class SearchResult(BaseModel):
+    chunk_id: int = Field(..., exclude=True)
     file_path: str
     symbol_name: str | None
     start_line: int | None
@@ -40,9 +44,19 @@ class SearchResponse(BaseModel):
 def _get_reranker() -> CrossEncoder:
     global _reranker
     if _reranker is None:
-        _reranker = CrossEncoder(RERANKER_MODEL_NAME)
+        try:
+            _reranker = CrossEncoder(
+                RERANKER_MODEL_NAME,
+                device="cpu",
+                model_kwargs={"low_cpu_mem_usage": False},
+            )
+        except Exception as exc:
+            logger.exception("Unable to initialize reranker %s", RERANKER_MODEL_NAME)
+            raise HTTPException(
+                status_code=503,
+                detail="Search temporarily unavailable; please retry.",
+            ) from exc
     return _reranker
-
 
 def search_code(query: str, repo_id: int | None = None, top_k: int = 10) -> SearchResponse:
     if not query.strip():
@@ -121,6 +135,7 @@ def search_code(query: str, repo_id: int | None = None, top_k: int = 10) -> Sear
     return SearchResponse(
         results=[
             SearchResult(
+                chunk_id=row.id,
                 file_path=row.path,
                 symbol_name=row.symbol_name,
                 start_line=row.start_line,

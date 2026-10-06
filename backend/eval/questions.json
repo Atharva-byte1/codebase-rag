@@ -1,0 +1,11 @@
+[
+  "Explain the architecture of this project and how the main Flask components fit together. Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "How does Flask handle database connections during a request, and where is that behavior implemented? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "What happens inside Flask when an HTTP request comes in, from the WSGI entry point through response handling? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "Where is URL routing implemented in Flask, and how are routes matched to view functions? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "Where is the application context implemented, and why does Flask need it? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "What files would I need to modify to add a new Flask CLI command? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "What could be affected if I change the Flask class __init__ method? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "How does Flask process exceptions raised by a view function, and where can that behavior be customized? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+  "How are request and application globals implemented, and what happens when code accesses them outside an active context? Ground the answer in the repository and cite sources using numbered citations like [1] and [2]."
+]

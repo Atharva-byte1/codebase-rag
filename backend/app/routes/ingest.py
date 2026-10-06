@@ -125,13 +125,29 @@ def _python_chunks(content: bytes) -> list[ChunkData]:
             )
         )
 
+    def add_class_header(node: ast.ClassDef, symbol_name: str) -> None:
+        end_line = node.lineno
+        if ast.get_docstring(node) and node.body:
+            docstring_node = node.body[0]
+            end_line = getattr(docstring_node, "end_lineno", end_line)
+        chunks.append(
+            (
+                symbol_name,
+                node.lineno,
+                end_line,
+                "".join(lines[node.lineno - 1 : end_line]),
+            )
+        )
+
     def visit_body(body: list[ast.stmt], parent_name: str = "") -> None:
         for node in body:
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 symbol_name = f"{parent_name}.{node.name}" if parent_name else node.name
-                add_node(node, symbol_name)
                 if isinstance(node, ast.ClassDef):
+                    add_class_header(node, symbol_name)
                     visit_body(node.body, symbol_name)
+                else:
+                    add_node(node, symbol_name)
 
     visit_body(tree.body)
     return chunks

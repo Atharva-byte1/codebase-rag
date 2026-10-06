@@ -5,5 +5,6 @@ psycopg[binary]==3.2.9
 python-multipart==0.0.20
 sqlalchemy==2.0.43
 sentence-transformers==5.1.1
+transformers==4.46.3
 numpy<2
 uvicorn==0.35.0

@@ -1,0 +1,88 @@
+{
+  "generated_at": "20261004T080649Z",
+  "base_url": "http://localhost:8000",
+  "repo_id": 16,
+  "results": [
+    {
+      "question": "Explain the architecture of this project and how the main Flask components fit together. Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 148.8,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "How does Flask handle database connections during a request, and where is that behavior implemented? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 68.82,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "What happens inside Flask when an HTTP request comes in, from the WSGI entry point through response handling? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 43.46,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "Where is URL routing implemented in Flask, and how are routes matched to view functions? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 35.42,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "Where is the application context implemented, and why does Flask need it? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 37.87,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "What files would I need to modify to add a new Flask CLI command? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 46.32,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "What could be affected if I change the Flask class __init__ method? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 41.93,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "How does Flask process exceptions raised by a view function, and where can that behavior be customized? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 29.37,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "How are request and application globals implemented, and what happens when code accesses them outside an active context? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 78.84,
+      "answer": "I could not find enough relevant repository context to answer that reliably.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    }
+  ]
+}

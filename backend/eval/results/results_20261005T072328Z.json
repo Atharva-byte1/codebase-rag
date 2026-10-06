@@ -1,0 +1,88 @@
+{
+  "generated_at": "20261005T072328Z",
+  "base_url": "http://localhost:8000",
+  "repo_id": 16,
+  "results": [
+    {
+      "question": "Explain the architecture of this project and how the main Flask components fit together. Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 55.56,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+      "question": "How does Flask handle database connections during a request, and where is that behavior implemented? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 4.39,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+      "question": "What happens inside Flask when an HTTP request comes in, from the WSGI entry point through response handling? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 9.41,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+      "question": "Where is URL routing implemented in Flask, and how are routes matched to view functions? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 22.57,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "URLError: <urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>"
+    },
+    {
+      "question": "Where is the application context implemented, and why does Flask need it? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 3.73,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+      "question": "What files would I need to modify to add a new Flask CLI command? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 26.51,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "URLError: <urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>"
+    },
+    {
+      "question": "What could be affected if I change the Flask class __init__ method? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 15.31,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "URLError: <urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>"
+    },
+    {
+      "question": "How does Flask process exceptions raised by a view function, and where can that behavior be customized? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 3.86,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+      "question": "How are request and application globals implemented, and what happens when code accesses them outside an active context? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": null,
+      "response_time_ms": 4.06,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "RemoteDisconnected: Remote end closed connection without response"
+    }
+  ]
+}

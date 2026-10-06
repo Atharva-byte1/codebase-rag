@@ -1,0 +1,241 @@
+{
+  "generated_at": "20261002T053444Z",
+  "base_url": "http://localhost:8000",
+  "repo_id": 16,
+  "results": [
+    {
+      "question": "Explain the architecture of this project and how the main Flask components fit together. Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 82406.38,
+      "answer": "**Flask project architecture \u2013 how the main components fit together**\n\nThe Flask source code is organized around a small set of core classes that cooperate to provide a complete web\u2011framework.  The most important pieces, as documented in the repository, are:\n\n| Component | Where it lives (file\u202f+\u202fline) | What it does | How it ties into the rest |\n|-----------|-----------------------------|--------------|--------------------------|\n| **Flask** (the request\u2011handling WSGI app) | `flask/app.py:110\u2011205`\u202f[2] | Implements a WSGI application and serves as the central registry for view functions, URL rules, template configuration, static files, etc. | It **extends** the `App` class (see below) and adds the WSGI wrapper.  It also creates and attaches the templating environment and session interface. |\n| **App** (the \u201csans\u2011IO\u201d core) | `flask/sansio/app.py:59\u2011154`\u202f[3] | Provides the bulk of Flask\u2019s functionality without the WSGI layer \u2013 routing, blueprint handling, configuration, and the basic scaffold for extensions. | `Flask` inherits from `App`, so all routing, blueprint registration, `url_map`, `config`, etc. come from `App`.  `App` itself extends `Scaffold` (the base class for request handling). |\n| **Environment** (Jinja templating) | `flask/templating.py:36\u201140`\u202f[1] | Works like a regular Jinja2 `Environment` but knows about Flask\u2019s **blueprint** system; it can prepend a blueprint\u2019s name to template references when looking up templates. | `Flask` creates an instance of this class (normally available as `app.jinja_env`).  Whenever a template is rendered, the Environment resolves the template name, taking blueprint prefixes into account. |\n| **SessionInterface** (session handling) | `flask/sessions.py:100\u2011135`\u202f[4] | The abstract base that defines `open_session` and `save_session`.  Subclasses implement the actual storage (the default uses Werkzeug\u2019s secure cookie).  Provides defaults for `is_null_session`, `make_null_session`, etc. | `Flask` has an attribute `session_interface`.  The app calls `open_session` at the start of a request and `save_session` after the request is processed, allowing custom back\u2011ends while keeping a uniform API. |\n\nBelow is a narrative walk\u2011through of how these pieces cooperate, with citations to the repository documentation.\n\n---\n\n### 1. The **Flask** object \u2013 the public, WSGI\u2011ready entry point  \n\nThe primary object you create in a Flask project is the class defined in `flask/app.py` (see the docstring in lines\u202f110\u2011205)\u202f[2].  This class **extends `App`**, meaning it inherits all of the routing, configuration and blueprint logic from the sans\u2011IO core, but it also adds the necessary WSGI adapter so that the application can be run by any WSGI server.\n\n```text\nFlask (flask/app.py) \n   \u2514\u2500 App (flask/sansio/app.py) \n        \u2514\u2500 Scaffold\n```\n\nThus, `Flask` is the \u201cthin\u201d wrapper that turns the pure\u2011Python `App` into a usable web service.\n\n---\n\n### 2. The **App** core \u2013 routing, config and blueprint registration  \n\n`App` lives in `flask/sansio/app.py` (docstring lines\u202f59\u2011154)\u202f[3] and is the **sans\u2011IO** implementation of the framework.  All of the following are defined there:\n\n* **URL map & routing** \u2013 `Flask` delegates route registration (`@app.route`, `add_url_rule`) to `App.url_map`.\n* **Configuration** \u2013 `App.config` holds the application\u2019s settings; it is initialized from `import_name`, `instance_path`, etc.\n* **Blueprint handling** \u2013 Blueprints are registered via `App.register_blueprint`.  Because `App` knows about blueprints, the templating layer can later use that knowledge.\n\n`App` also defines the scaffolding for request handling (`Scaffold`), which provides the low\u2011level request/response lifecycle.  Since `Flask` inherits from `App`, the public API you interact with (`app.route`, `app.config`, `app.blueprint`, etc.) is actually the `App` API, just exposed through the `Flask` subclass.\n\n---\n\n### 3. The **Environment** \u2013 Jinja2 with blueprint awareness  \n\nWhen you call `render_template` (or use `app.render_template`), Flask uses an instance of the `Environment` class defined in `flask/templating.py:36\u201140`\u202f[1].  This class is a **drop\u2011in replacement for a standard Jinja2 environment** but adds a crucial Flask\u2011specific feature:\n\n> \u201c*Works like a regular Jinja environment but has some additional knowledge of how Flask's blueprint works so that it can prepend the name of the blueprint to referenced templates if necessary.*\u201d\n\nBecause `App` (and thus `Flask`) knows which blueprints are registered, the `Environment` can automatically prefix template names with the blueprint\u2019s name when resolving templates.  This is why a template referenced inside a blueprint can be found even if the blueprint\u2019s own `template_folder` is nested.\n\n`Flask` creates this environment (accessible as `app.jinja_env`) once at startup, and it is reused for every request.  The environment also holds the Jinja2 extensions that Flask registers (e.g., the `with_` tag, autoescape settings).\n\n---\n\n### 4. The **SessionInterface** \u2013 pluggable session storage  \n\nSessions are handled by the abstract class `SessionInterface` in `flask/sessions.py:100\u2011135`\u202f[4].  The interface defines:\n\n* `open_session(request)` \u2013 creates or loads the session object for the current request.\n* `save_session(request, response, session)` \u2013 persists any changes made during the request.\n\nThe default implementation (in `flask.sessions.SecureCookieSessionInterface`) uses Werkzeug\u2019s signed cookies, but developers can **replace the whole interface** by assigning a custom object to `app.session_interface` (as shown in the docstring).  The `Flask` class delegates all session work to the current `session_interface`, guaranteeing a uniform contract regardless of the storage backend.\n\nWhen `open_session` returns `None` (e.g., because the required secret key is missing), Flask falls back to a **null session** (`NullSession`) that logs a warning.  This fallback ensures the request continues even if session support cannot be initialized.\n\n---\n\n### 5. How the pieces fit together in a request  \n\n1. **WSGI entry** \u2013 The `Flask` instance receives a WSGI `environ` and `start_response`.  Because it subclasses `App`, the request is processed by the `App`\u2019s request handling code (the `Scaffold` layer).\n\n2. **Routing** \u2013 `App.lookup()` (implemented in `Scaffold`) matches the request path against `App.url_map` and invokes the appropriate view function.\n\n3. **Templating** \u2013 If a view returns a template name, `App.make_response` (or the view\u2019s own logic) calls `Flask.jinja_env.get_template`.  The `Environment` resolves the name, consulting any blueprint prefixes that were registered via `App.register_blueprint`.\n\n4. **Session handling** \u2013 Before the view runs, `Flask.dispatch_request` triggers `Flask.session_interface.open_session`.  The returned session object is stored in `request.session`.  After the view completes, `Flask.finalize_request` calls `Flask.session_interface.save_session` (or the equivalent in the response handling path).\n\n5. **Response & teardown** \u2013 The response is assembled, possibly using template rendering results from step\u202f3, and any teardown callbacks (including session saving) run.\n\nAll of these steps happen **within the single `Flask` object**, which delegates to the underlying `App` (routing, config), the `Environment` (template resolution), and the `SessionInterface` (session persistence).  The design keeps concerns separated while maintaining a tight, low\u2011overhead integration.\n\n---\n\n### 6. Summary  \n\n* **Flask** (`flask/app.py`\u202f[2]) is the public WSGI class that glues everything together.  \n* **App** (`flask/sansio/app.py`\u202f[3]) provides the core routing, configuration, and blueprint infrastructure (it extends `Scaffold`).  \n* **Environment** (`flask/templating.py`\u202f[1]) supplies Jinja2 templating with blueprint\u2011aware template lookup.  \n* **SessionInterface** (`flask/sessions.py`\u202f[4]) abstracts session storage, allowing custom back\u2011ends while Flask supplies the default cookie\u2011based implementation.\n\nThese four components form a minimal, cohesive architecture: the **App** handles the HTTP semantics, the **Environment** handles template rendering, the **SessionInterface** handles per\u2011request state, and the **Flask** subclass presents a simple, WSGI\u2011ready API to the developer.  All of this is documented in the repository\u2019s source code, as shown by the cited sections.",
+      "citation_marker_count": 12,
+      "sources": [
+        {
+          "citation_id": 2,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask",
+          "start_line": 110,
+          "end_line": 205
+        },
+        {
+          "citation_id": 3,
+          "file_path": "flask-main/src/flask/sansio/app.py",
+          "symbol_name": "App",
+          "start_line": 59,
+          "end_line": 154
+        },
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/templating.py",
+          "symbol_name": "Environment",
+          "start_line": 36,
+          "end_line": 40
+        },
+        {
+          "citation_id": 4,
+          "file_path": "flask-main/src/flask/sessions.py",
+          "symbol_name": "SessionInterface",
+          "start_line": 100,
+          "end_line": 135
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "How does Flask handle database connections during a request, and where is that behavior implemented? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 33862.98,
+      "answer": "**Short answer:**  \nFlask itself does **not** provide any built\u2011in logic for opening or closing database connections.  Instead, Flask offers a request\u2011lifecycle hook system that lets you write your own \u201copen\u2011on\u2011request / close\u2011on\u2011teardown\u201d logic.  The place where this cleanup runs is the **request / app context teardown** that is implemented in `flask/ctx.py` in the `AppContext` class.\n\n---\n\n### How Flask lets you manage DB connections\n\n1. **Create a connection when a request starts** \u2013 you normally do this either inside a view function, a before\u2011request handler, or via an extension (e.g. Flask\u2011SQLAlchemy).  The connection is stored in a place that lives for the duration of the request, such as `g.db` or inside the `app_context`.\n\n2. **Close the connection when the request ends** \u2013 Flask guarantees that a **teardown function** you register with `Flask.teardown_request` (for request\u2011scoped cleanup) or `Flask.teardown_appcontext` (for app\u2011scoped cleanup) will be called **after the request is handled** and **before the request context is popped** (see the description of `AppContext`\u202f[1]).\n\n   The relevant code is in `flask/ctx.py` where the `AppContext` class\u2019s `__exit__` (or equivalent) evaluates all registered teardown handlers:\n\n   > \u201cWhen the context is popped, it will evaluate all the teardown functions registered with :meth:`~flask.Flask.teardown_request` (if handling a request) then :meth:`.Flask.teardown_appcontext`.\u201d  \n   > \u2013 **Context\u202f1**, *AppContext* documentation\n\n   Because the teardown runs **after** the view logic (and after any `after_this_request` callbacks, see **Context\u202f2**), you can safely close connections there without interfering with the response generation.\n\n3. **Use `app_context()` for set\u2011up/teardown outside a request** \u2013 If you need a database connection for initialization or for work that isn\u2019t tied to a particular request, you can wrap the code in a context manager:\n\n   ```python\n   with app.app_context():\n       db = get_connection()\n       # \u2026 do work \u2026\n   ```\n\n   The `app_context()` method is defined in `flask/app.py`\u202f[7] and creates an `AppContext` that provides the same teardown guarantees.\n\n---\n\n### Where the behavior is implemented\n\n| Piece of behavior | Source location (from the repository) |\n|-------------------|----------------------------------------|\n| **Centralized teardown of request\u2011 and app\u2011scoped handlers** | `flask/ctx.py` \u2013 `AppContext` class documentation (see **Context\u202f1**) |\n| **Providing a clean place to store request\u2011scoped data (e.g., `g.db`)** | `flask/app.py` \u2013 `Flask.app_context` method (**Context\u202f7**) |\n| **Adding per\u2011request cleanup callbacks (the pattern you\u2019d use to close a DB)** | `flask/ctx.py` \u2013 `after_this_request` decorator (**Context\u202f2**) (example of how to attach a callback) |\n| **Opening a connection (you\u2019d write this yourself or via an extension)** | Not present in the core repository; left to extensions or user code |\n\nBecause the core Flask code does **not** contain any DB\u2011specific logic, the \u201cdatabase\u2011connection handling\u201d is *implemented by the developer* (or an extension) using the teardown infrastructure described above.\n\n---\n\n### Typical developer pattern (illustrated)\n\n```python\nfrom flask import Flask, g\n\napp = Flask(__name__)\n\ndef get_db():\n    if \"db\" not in g:\n        # Open a new connection and store it in the request context\n        g.db = open_db_connection()\n    return g.db\n\n@app.teardown_request\ndef close_db(exc):\n    db = g.pop(\"db\", None)\n    if db is not None:\n        db.close()   # custom cleanup code\n\n@app.route(\"/\")\ndef index():\n    db = get_db()\n    # \u2026 perform DB work \u2026\n    return \"OK\"\n```\n\n- `get_db` is called **inside the request**; the connection lives in `g` (the request\u2011scoped object created by the `AppContext`\u202f[1]).\n- `close_db` is registered with `app.teardown_request`; Flask guarantees it will run **after the view** and **before the context is popped** (again, see **Context\u202f1**).\n- The `app_context()` method (**Context\u202f7**) gives you the same ability to set up/tear down connections when you\u2019re not handling a request.\n\n---\n\n**In summary:** Flask\u2019s core code does not handle database connections; it supplies the teardown machinery (implemented in `flask/ctx.py`\u202f[1]) that lets you write deterministic \u201copen\u2011at\u2011start / close\u2011at\u2011end\u201d logic for any external resource, including DB connections.  The `app_context()` helper (**Context\u202f7**) and teardown hooks are the primary places where this behavior is implemented in the repository.",
+      "citation_marker_count": 4,
+      "sources": [
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/ctx.py",
+          "symbol_name": "AppContext",
+          "start_line": 260,
+          "end_line": 298
+        },
+        {
+          "citation_id": 7,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask.app_context",
+          "start_line": 1484,
+          "end_line": 1502
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "What happens inside Flask when an HTTP request comes in, from the WSGI entry point through response handling? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 503,
+      "response_time_ms": 67497.99,
+      "answer": "",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": "HTTP 503"
+    },
+    {
+      "question": "Where is URL routing implemented in Flask, and how are routes matched to view functions? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 29680.97,
+      "answer": "**URL routing in Flask is implemented in the core `Flask` class and its shared base class `Scaffold`. The pieces you see in the repository are:**\n\n| Piece | Location | What it does | Citation |\n|-------|----------|--------------|----------|\n| **Route registration** | `flask/sansio/scaffold.py` \u2013 `Scaffold.route` (lines\u202f343\u2011373) | The `@app.route()` decorator calls `self.add_url_rule()` to turn a view function into a URL rule that is stored in the app\u2019s routing table. | [2] |\n| **Storage of rules** | `flask/app.py` \u2013 `Flask.url_for` (lines\u202f1105\u20111225) and `flask/cli.py` \u2013 `routes_command` (lines\u202f1048\u20111107) | The app keeps a `url_map` attribute (a `werkzeug.routing.URLMap` instance). `url_for` uses `ctx.url_adapter` (derived from `url_map`) to reverse an endpoint to a path, and the CLI command lists all rules with `current_app.url_map.iter_rules()`. | [1], [3] |\n| **Blueprint route registration** | `flask/sansio/blueprints.py` \u2013 `Blueprint` (lines\u202f119\u2011170) | Blueprints also inherit from `Scaffold`, so they use the same `add_url_rule` machinery, but they prepend the blueprint name to each endpoint. | [4] |\n| **Base class that provides routing behavior** | `flask/sansio/scaffold.py` \u2013 `Scaffold` (lines\u202f52\u201168) | Defines the common `route` decorator and any shared routing helpers used by `Flask` and `Blueprint`. | [7] |\n\n### How routes are **matched** to view functions at request time\n\nWhen a request arrives, Flask does not re\u2011evaluate the decorators you wrote. Instead:\n\n1. The **request\u2019s path** is handed to the app\u2019s `url_map` (or the request\u2011scoped `url_adapter`).  \n2. The `url_map`\u2014which is an instance of Werkzeug\u2019s `URLMap`\u2014runs its `match` method. This method walks the registered `Rule` objects, trying patterns until it finds one that fits the request path. If a match is found it returns the **endpoint name** (e.g. `my_view`) and a dict of captured variables.  \n3. Flask then looks up the endpoint in its internal map of view functions (which was populated when `add_url_rule` was called by the decorator) and calls the corresponding view function with the captured arguments.\n\nThe **matching logic itself lives in Werkzeug\u2019s routing module**, but Flask\u2019s public API exposes it through the `url_map` attribute you see referenced in `url_for` (as `url_adapter`) and in the CLI command (`url_map.iter_rules`). Thus, while the repository does not contain the raw `match` implementation, the fact that Flask delegates matching to `url_map` is evident from the objects that are used for reverse routing and route introspection.\n\n**In short:**\n\n- **Where it lives:** The routing *registration* code is in `flask/sansio/scaffold.py` (`Scaffold.route`) and the *storage* is in `flask.app.Flask`\u2019s `url_map`. Blueprints reuse the same mechanism (`flask/sansio/blueprints.py`).  \n- **How matching works:** At request time the app\u2019s `url_map` (a Werkzeug `URLMap`) matches the incoming path to a rule, yielding an endpoint that Flask then dispatches to the view function.\n\nThese statements are all backed by the snippets above, so you can trace the routing flow from the decorator you write (`@app.route`) all the way to the internal matching that turns a URL into a view call.",
+      "citation_marker_count": 5,
+      "sources": [
+        {
+          "citation_id": 2,
+          "file_path": "flask-main/src/flask/sansio/scaffold.py",
+          "symbol_name": "Scaffold.route",
+          "start_line": 343,
+          "end_line": 373
+        },
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask.url_for",
+          "start_line": 1105,
+          "end_line": 1225
+        },
+        {
+          "citation_id": 3,
+          "file_path": "flask-main/src/flask/cli.py",
+          "symbol_name": "routes_command",
+          "start_line": 1048,
+          "end_line": 1107
+        },
+        {
+          "citation_id": 4,
+          "file_path": "flask-main/src/flask/sansio/blueprints.py",
+          "symbol_name": "Blueprint",
+          "start_line": 119,
+          "end_line": 170
+        },
+        {
+          "citation_id": 7,
+          "file_path": "flask-main/src/flask/sansio/scaffold.py",
+          "symbol_name": "Scaffold",
+          "start_line": 52,
+          "end_line": 68
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "Where is the application context implemented, and why does Flask need it? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 40305.2,
+      "answer": "The application context is a core Flask construct that lives in the **`AppContext`** class.\n\n**Where it is implemented**\n- The `AppContext` class is defined in the repository at `flask/ctx.py` (lines\u202f260\u2011298) **[1]**.  \n- The `Flask` class (the main entry point for applications) provides an `app_context` method that creates instances of this class. That method is defined in `flask/app.py` **[2]**.\n\n**Why Flask needs it**\n- The docstring of `AppContext` (see **[1]**) explains the purpose: \u201cAn app context contains information about an app, and about the request when handling a request. A context is pushed at the beginning of each request and CLI command, and popped at the end. The context is referred to as a *request context* if it has request information, and an *app context* if not. When the context is popped, it will evaluate all the teardown functions registered with :meth:`.Flask.teardown_request` (if handling a request) then :meth:`.Flask.teardown_appcontext`.\u201d\n- Consequently, Flask needs the app context to:\n  1. **Maintain per\u2011request state** (`request`, `session`, `g`, `current_app`) in a thread\u2011local stack so that handlers, middleware, and extensions can access these objects reliably.\n  2. **Provide a clean\u2011up mechanism**: when the context is popped, Flask runs both request\u2011specific and app\u2011specific teardown functions, guaranteeing that resources (database connections, file handles, etc.) are released.\n  3. **Support code outside a request**: CLI commands, the shell, and test client code run without an active HTTP request, yet often need access to the application object, `g`, or a temporary request. The app context makes this possible.\n\nIn short, the `AppContext` class (implemented in `flask/ctx.py`) is the runtime backbone that lets Flask manage application\u2011wide state, enforce proper resource cleanup, and keep the current app/request information available throughout the lifecycle of each request, CLI command, or test. The `Flask.app_context` method (in `flask/app.py`) simply gives developers a way to create these contexts when needed.",
+      "citation_marker_count": 3,
+      "sources": [
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/ctx.py",
+          "symbol_name": "AppContext",
+          "start_line": 260,
+          "end_line": 298
+        },
+        {
+          "citation_id": 2,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask",
+          "start_line": 110,
+          "end_line": 205
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "What files would I need to modify to add a new Flask CLI command? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 47994.93,
+      "answer": "To add a new Flask CLI command you need to edit **two kinds of files** in a Flask project:\n\n| Goal | Files to edit | Why (repository evidence) |\n|------|---------------|---------------------------|\n| **Add a command that is available for every Flask app** (i.e., a built\u2011in \u201cflask <cmd>\u201d command) | \u2022 `src/flask/cli.py` \u2013 the module that defines the `FlaskGroup` class and all built\u2011in click commands.<br>\u2022 `src/flask/app.py` \u2013 where the default `self.cli` group is created. | In `src/flask/cli.py` the `FlaskGroup` class is the Click command group that carries the default commands ([1]). The `Flask` class creates its own `self.cli = cli.AppGroup()` instance in `src/flask/app.py` ([4]), so a new command must be added to this group (either by registering it in `FlaskGroup.__init__` or by adding it after the app is created). |\n| **Add a custom command that belongs to your own Flask application** (e.g., an \u201cinit\u2011db\u201d command) | \u2022 Your application\u2019s module where the `Flask` instance is created \u2013 usually `yourapp/__init__.py` or a separate module like `yourapp/cli_commands.py`.<br>\u2022 If you use an `init_app` pattern (as shown in the tutorial) you also edit the module that calls `app.cli.add_command` (e.g., `yourapp/db.py`). | The tutorial example shows the pattern: define a Click command (e.g., `init_db_command`) and register it with the app via `app.cli.add_command` inside an `init_app` function ([2]). After the app exists you can also use the decorator `@app.cli.command()` \u2013 this works because `app.cli` is the `AppGroup` instance created in `src/flask/app.py` ([4]). |\n\n### Practical steps\n\n1. **Create the command function** (anywhere in your project, e.g., `yourapp/cli_commands.py`):\n\n   ```python\n   from flask import current_app\n\n   @current_app.cli.command()      # or: app.cli.add_command(...)\n   def hello():\n       \"\"\"Simple command that prints a greeting.\"\"\"\n       print(\"Hello from the new CLI command!\")\n   ```\n\n   *The `@app.cli.command()` decorator uses the `cli` attribute of the Flask instance \u2013 that attribute is the `AppGroup` created in `src/flask/app.py` ([4]).*\n\n2. **Register the command with the app** (if you use the `init_app` pattern, similar to the tutorial\u2019s `db.py`):\n\n   ```python\n   # yourapp/db.py (or any module that has access to the app)\n   from .cli_commands import init_db_command\n\n   def init_app(app):\n       app.cli.add_command(init_db_command)   # <\u2011\u2011 see [2]\n       # \u2026 other app\u2011initialisation \u2026\n   ```\n\n   *The `init_app` function in the tutorial adds `init_db_command` to the app\u2019s CLI group ([2]).*\n\n3. **If you want the command to be part of Flask\u2019s own CLI** (i.e., available when you run `flask <cmd>` from any project without extra registration), you must edit the Flask source:\n\n   ```python\n   # src/flask/cli.py\n   @click.command()\n   def mycommand():\n       \"\"\"My new built\u2011in command.\"\"\"\n       click.echo(\"I'm part of Flask itself.\")\n\n   # Inside the FlaskGroup definition (or wherever default commands are added)\n   class FlaskGroup(AppGroup):\n       def __init__(self, ...):\n           super().__init__(...)\n           self.add_command(mycommand)   # <\u2011\u2011 add to the group\n   ```\n\n   *The `FlaskGroup` class in `src/flask/cli.py` is the Click group that holds the default commands ([1]), and the `Flask` class creates the `self.cli` group in `src/flask/app.py` ([4]).*\n\n4. **Test the command** (optional but recommended). You can use the `FlaskCliRunner` from the testing module (`src/flask/testing.py`) to invoke the command in isolation, just as the existing tests do ([5], [7]).\n\n### Summary\n\n- **Core Flask changes** \u2192 edit `src/flask/cli.py` and `src/flask/app.py` to add a command to `FlaskGroup`/`self.cli`.\n- **Your own Flask app** \u2192 edit your application\u2019s own files (e.g., `yourapp/__init__.py` or a dedicated `cli_commands.py`), define a Click command, and attach it using `@app.cli.command()` or `app.cli.add_command()` inside an `init_app` function (mirroring the tutorial pattern shown in `[2]`).  \n\nThese are the only repository files you need to touch to introduce a new CLI command, whether you are extending Flask itself or adding a command to your own project.",
+      "citation_marker_count": 12,
+      "sources": [
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/cli.py",
+          "symbol_name": "FlaskGroup",
+          "start_line": 531,
+          "end_line": 561
+        },
+        {
+          "citation_id": 4,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask.__init__",
+          "start_line": 311,
+          "end_line": 364
+        },
+        {
+          "citation_id": 2,
+          "file_path": "flask-main/examples/tutorial/flaskr/db.py",
+          "symbol_name": "init_app",
+          "start_line": 51,
+          "end_line": 56
+        },
+        {
+          "citation_id": 5,
+          "file_path": "flask-main/src/flask/testing.py",
+          "symbol_name": "FlaskCliRunner.invoke",
+          "start_line": 275,
+          "end_line": 298
+        },
+        {
+          "citation_id": 7,
+          "file_path": "flask-main/src/flask/testing.py",
+          "symbol_name": "FlaskCliRunner",
+          "start_line": 265,
+          "end_line": 269
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "What could be affected if I change the Flask class __init__ method? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 51723.12,
+      "answer": "Changing the ``Flask`` class\u2019s ``__init__`` method can have ripple\u2011effects throughout the core behaviours that Flask documents for the application object.  The repository\u2019s docstrings describe a handful of the most\u2011visible aspects that are wired in during initialization.  Any alteration to the ``__init__`` implementation therefore risks breaking or changing the way these aspects work.  Below is a non\u2011exhaustive list of the areas that are most likely to be affected, each tied to a citation from the supplied context.\n\n| Area of impact | Why it matters (documentation reference) |\n|----------------|-------------------------------------------|\n| **Import\u2011name handling and root\u2011path detection** | The first parameter of ``Flask.__init__`` is ``import_name``.  The class docstring (see **[2]**) and the parent ``App`` docstring (**[3]**) state that ``import_name`` is used to resolve resources, determine the application\u2019s ``root_path``, and influence debugging information (e.g., Flask\u2011SQLAlchemy\u2019s trace detection).  Modifying ``__init__`` could change how ``root_path`` is calculated, which would in turn affect `open_resource`, template loading, and static\u2011file discovery. |\n| **Static\u2011file serving configuration** | ``Flask.__init__`` receives ``static_url_path`` and ``static_folder`` (**[2]**, **[3]**, see the \u201cstatic_url_path\u201d and \u201cstatic_folder\u201d parameters).  These values are used to register the static file route.  Changing the initialization logic could break the static\u2011file endpoint or cause it to point to the wrong location, making static assets unavailable. |\n| **Template discovery** | The ``template_folder`` parameter (**[2]**, **[3]**) is also set in ``__init__``.  It tells Flask where to look for templates.  An altered ``__init__`` could cause templates to be resolved incorrectly or not at all, breaking rendering of views. |\n| **Instance path and instance\u2011relative config** | ``instance_path`` and ``instance_relative_config`` are documented as initialization parameters (**[2]**, **[3]**).  They control where Flask looks for an *instance* folder and whether config files are loaded relative to that folder.  Changing ``__init__`` could break config loading for extensions that rely on `current_app.config` or cause the instance\u2011folder\u2011based file writes to target the wrong directory. |\n| **Session handling** | The ``SessionInterface`` documentation (**[1]**) explains that Flask uses a session interface (accessible via ``app.session_interface``).  While the exact default is created elsewhere, the interface is part of the app\u2019s initialization contract.  If ``__init__`` no longer creates or configures the default interface, session serialization, cookie handling, and security (e.g., secret\u2011key validation) could be compromised. |\n| **Extension\u2011related behaviours that depend on ``import_name``** | Many extensions (e.g., Flask\u2011SQLAlchemy, Flask\u2011Login) read ``app.import_name`` during setup to locate source files for debugging or to register signals.  The docstrings (**[2]**, **[3]**) note that ``import_name`` is used for \u201cdebugging information and a lot more.\u201d  A changed ``__init__`` that mutates ``import_name`` or skips its processing could impair extension logging, test discovery, or error reporting. |\n| **WSGI/application lifecycle hooks** | ``Flask`` is described as \u201cthe central object\u201d that implements a WSGI application and registers view functions, URL rules, and template configuration (**[2]**, **[3]**).  The ``__init__`` method is the place where those registries are prepared (e.g., creating the underlying `App` object).  Altering this could affect request handling, URL map construction, or the order in which blueprints are registered. |\n| **Backwards\u2011compatibility and subclassing** | Subclasses that override ``__init__`` or rely on the current parameter signature (**[2]**, **[3]**) could break.  Any change to the signature or default\u2011value logic would be a breaking change for existing code that passes positional arguments or uses keyword arguments like `static_url_path=False`. |\n\n**Key take\u2011away**\n\nThe repository\u2019s documentation makes clear that ``Flask.__init__`` is the gateway for a wide range of core features: resource resolution, static\u2011file serving, template lookup, instance\u2011folder handling, session support, and extension\u2011specific debugging.  Because these features are tightly coupled to the initialization parameters described in the class docstrings, a careless change to ``__init__`` can ripple through almost every part of a Flask application.\n\nIf you intend to modify ``Flask.__init__``, you should:\n\n1. **Preserve the documented signature** (`import_name`, `static_url_path`, `static_folder`, `static_host`, `host_matching`, `subdomain_matching`, `template_folder`, `instance_path`, `instance_relative_config`, `root_path`).  Any deviation should be thoroughly tested and, if possible, kept optional.\n\n2. **Maintain the default behaviours** for `root_path` detection (see **[2]**, **[3]**) and session interface creation (see **[1]**).  Even if the default is created elsewhere, the expectation is that a fresh Flask app behaves identically to the documented defaults.\n\n3. **Update any related factory or subclass code** that depends on the current initialization logic (e.g., custom ``SessionInterface`` subclasses, extensions that inspect `app.import_name`).\n\n4. **Run the test suite** that validates static serving, template rendering, config loading, and session handling, because the repository\u2019s test suite is the concrete verification that these doc\u2011string\u2011described behaviours remain intact.\n\nIn short, the ``Flask.__init__`` method is a linchpin; altering it can affect import\u2011name resolution, static/template folder handling, instance configuration, session support, and any extension that relies on those initialization details.  All of these impacts are documented in the repository\u2019s class docstrings (**[1]**, **[2]**, **[3]**,).",
+      "citation_marker_count": 21,
+      "sources": [
+        {
+          "citation_id": 2,
+          "file_path": "flask-main/src/flask/app.py",
+          "symbol_name": "Flask",
+          "start_line": 110,
+          "end_line": 205
+        },
+        {
+          "citation_id": 3,
+          "file_path": "flask-main/src/flask/sansio/app.py",
+          "symbol_name": "App",
+          "start_line": 59,
+          "end_line": 154
+        },
+        {
+          "citation_id": 1,
+          "file_path": "flask-main/src/flask/sessions.py",
+          "symbol_name": "SessionInterface",
+          "start_line": 100,
+          "end_line": 135
+        }
+      ],
+      "error": null
+    },
+    {
+      "question": "How does Flask process exceptions raised by a view function, and where can that behavior be customized? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 21605.28,
+      "answer": "I\u2019m unable to answer the question about how Flask processes exceptions raised by a view function and where that behavior can be customized, because the repository context you provided does not contain any information on error handling, exception processing, or related customization points (e.g., `app.errorhandler`, `Flask.handle_exception`, etc.). \n\nTo give a repository\u2011grounded answer I would need additional context covering Flask\u2019s error\u2011handling mechanisms, such as the code that catches view exceptions, the `errorhandler` decorator or `register_error_handler` method, and any configuration or hook points that allow developers to customize exception processing. Please provide those parts of the repository so I can cite the relevant sections.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    },
+    {
+      "question": "How are request and application globals implemented, and what happens when code accesses them outside an active context? Ground the answer in the repository and cite sources using numbered citations like [1] and [2].",
+      "http_status": 200,
+      "response_time_ms": 48738.24,
+      "answer": "The request\u2011 and application\u2011level globals that Flask exposes (`flask.request`, `flask.current_app`, `flask.g`, `flask.session`, etc.) are **not plain module attributes**. They are **proxies that look up a context\u2011local storage** to obtain the active *app/request* context.\n\n### How the globals are implemented\n\n1. **The active context is stored in a `ContextVar` (`_cv_app`).**  \n   This variable is defined in `flask/ctx.py` and is used throughout the request\u2011handling flow.\n\n   * In `copy_current_request_context` the decorator extracts the currently active context via `_cv_app.get(None)`\u30101\u3011.  \n   * `has_request_context` reads the same variable and additionally checks `ctx.has_request`\u30102\u3011.  \n   * `has_app_context` only checks whether the variable is not `None`\u30103\u3011.  \n   * `AppContext.push` installs the context onto the variable with `_cv_app.set(self)`\u30109\u3011.\n\n   Because `_cv_app` is a context\u2011variable, each async/greenlet/task gets its own \u201cactive\u201d context, giving the globals thread\u2011local behavior.\n\n2. **`AppContext` holds the data that the globals expose.**  \n   The `AppContext` class (defined in `flask/ctx.py` lines\u202f260\u2011298) stores the request object, session, `g`, and `current_app`. When the context is *combined* with request information (the \u201crequest context\u201d), `ctx.has_request` becomes true\u30104\u3011.\n\n3. **The request context is created on every WSGI request.**  \n   `Flask.request_context` (lines\u202f1504\u20111518) builds an `AppContext` that contains request data, and `Flask.wsgi_app` pushes that context before handling the request\u30108\u3011.\n\n4. **The public globals are proxies that delegate to the context.**  \n   Although the exact proxy definitions are not in the snippets supplied, the pattern is `flask.request = LocalProxy(_lookup_ctx_state(...))`. The proxy internally calls `_cv_app.get(None)` to retrieve the current `AppContext` and then reads `ctx.request` (or `ctx.current_app`, `ctx.g`, etc.). This pattern is reflected in the way `has_request_context` and `has_app_context` test the presence of a context\u30102\u3011\u30103\u3011.\n\n### What happens when code accesses a global outside an active context\n\n* **No app context (`flask.current_app` or `flask.g`).**  \n  `has_app_context` shows that a non\u2011`None` value in `_cv_app` is required\u30103\u3011. If code accesses `flask.current_app` when `_cv_app.get(None)` returns `None` (i.e., no app context has been pushed), the proxy will raise a `RuntimeError` because there is no context to retrieve. This mirrors the explicit check in `copy_current_request_context`, which raises `RuntimeError` when `original` is `None`\u30101\u3011.\n\n* **No request context (`flask.request` or `flask.session`).**  \n  `has_request_context` requires both a non\u2011`None` `_cv_app` **and** `ctx.has_request == True`\u30102\u3011. If the context exists but does not carry request information (`has_request` is false), the proxy for `flask.request` will also raise a `RuntimeError`. If `_cv_app.get(None)` is `None`, the proxy will similarly fail because there is no `ctx` to contain a request.\n\n* **Typical error message (as documented elsewhere in Flask).**  \n  The proxies raise an error such as *\u201cWorking outside of request context\u201d* or *\u201cWorking outside of application context\u201d*. In the repository these errors are produced by the proxy code (outside the snippets provided) but the condition is the same: the underlying lookup (`_cv_app.get(None)`) returns `None` or the context lacks the requested attribute.\n\n### Summary of the flow\n\n| Step | What the code does | Relevant repository code |\n|------|-------------------|--------------------------|\n| 1. Create context | `Flask.request_context(environ)` \u2192 `AppContext.from_environ(...)`\u30105\u3011 | |\n| 2. Activate context | `ctx.push()` \u2192 `_cv_app.set(self)`\u30109\u3011 | |\n| 3. Globals become usable | `flask.request`, `flask.current_app`, `flask.g` are proxies that read `_cv_app.get(None)`\u30101\u3011\u30102\u3011\u30103\u3011 | |\n| 4. End request | `ctx.pop(error)` cleans up `_cv_app` | `Flask.wsgi_app`\u30108\u3011 |\n| 5. Outside context | `_cv_app.get(None)` \u2192 `None` \u2192 proxies raise `RuntimeError` | `has_request_context`, `has_app_context`\u30102\u3011\u30103\u3011 |\n\nThus, **request and application globals are implemented by context\u2011local proxies that read from `_cv_app`**, and **accessing them when the context stack is empty (or the context lacks request information) results in a `RuntimeError`** because the underlying lookup returns `None` or `ctx.has_request` is false\u30101\u3011\u30102\u3011\u30103\u3011\u30104\u3011\u30105\u3011\u30108\u3011\u30109\u3011.",
+      "citation_marker_count": 0,
+      "sources": [],
+      "error": null
+    }
+  ]
+}
